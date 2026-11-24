@@ -1,0 +1,52 @@
+# Local infrastructure for provenance-jobs.
+#
+# Stage 0 runs only the two stateful dependencies. Later stages add:
+#   api (FastAPI), worker (Celery), prometheus, grafana.
+#
+# Values come from .env (copied from .env.example). Docker Compose reads a
+# file named .env in this directory automatically for ${VAR} substitution.
+
+name: provenance-jobs
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-provenance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-provenance}
+      POSTGRES_DB: ${POSTGRES_DB:-provenance}
+    ports:
+      # Bind to localhost only: the database must not be reachable from the network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready checks that Postgres accepts connections, not just that the
+      # container process is alive. Later services wait on "service_healthy".
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # appendonly = write every command to a log on disk (AOF).
+    # Redis is our Celery broker: without persistence, a Redis restart would
+    # silently lose every queued job that no worker had picked up yet.
+    # Postgres still holds the job row, but nothing would ever run it.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
