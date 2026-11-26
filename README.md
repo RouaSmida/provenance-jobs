@@ -5,16 +5,40 @@ A learning prototype of an **agentic job platform with data provenance**: long-r
 to a **tamper-evident, hash-chained audit trail** that stays consistent when jobs are
 retried, cancelled or partially fail.
 
-> Status: **Stage 0 – setup and architecture.** See [LEARNING_NOTES.md](LEARNING_NOTES.md)
-> for what each stage teaches.
+> Status: **Stages 1–3 done**: API, Celery worker, hash-chained audit trail.
+> See [LEARNING_NOTES.md](LEARNING_NOTES.md) for what each stage teaches.
 
 ## Quick start
 
+Works on Windows/macOS/Linux with only Docker (no `make` or local Python needed):
+
 ```bash
-make up      # create .env, start Postgres + Redis, wait until healthy
-make check   # smoke test both services
-make help    # list every command
+cp .env.example .env                    # PowerShell: Copy-Item .env.example .env
+docker compose up -d --build --wait     # postgres, redis, api, worker - waits until healthy
+docker compose ps                       # all four should be "healthy"
+
+docker compose exec api pytest -q                           # unit tests (hash chain)
+docker compose exec api python scripts/submit_jobs.py --cancel 2   # 10 jobs end to end
+docker compose exec api python scripts/tamper.py            # break a chain, detect it, restore
+
+docker compose logs -f worker           # watch retries/cancellations live
+docker compose down                     # stop (keeps data); `down -v` deletes it
 ```
+
+The API docs are at http://localhost:8000/docs. With `make`, the same steps are
+`make up`, `make test`, `make submit` and `make tamper`.
+
+### API
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/jobs` | Optional `Idempotency-Key` header. 201 = new job, 200 = existing job for that key |
+| `GET` | `/jobs/{id}` | Job state |
+| `GET` | `/jobs/{id}/lineage` | Events in order + `chain: {valid, first_broken_event_id, reason}` |
+| `POST` | `/jobs/{id}/cancel` | queued/retrying → cancelled now; running → flag, worker stops between steps; finished → 409 |
+
+Event types: `queued`, `started`, `step_completed`, `failed`, `retried`,
+`cancel_requested`, `cancelled`, `succeeded`. Each one carries its `attempt` (0 = API).
 
 ## Architecture
 

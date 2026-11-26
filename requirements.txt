@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+# celery, kombu and redis-py pinned together: an unpinned kombu can require a newer redis-py.
+celery==5.5.3
+kombu==5.5.4
+redis==5.2.1
+pytest==8.3.4

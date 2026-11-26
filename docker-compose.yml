@@ -47,6 +47,55 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # --- Stage 1: FastAPI -----------------------------------------------------------
+  api:
+    build: .
+    image: provenance-jobs-app:dev
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: &app-env
+      # Inside the compose network the hosts are the service names, not localhost.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-provenance}:${POSTGRES_PASSWORD:-provenance}@postgres:5432/${POSTGRES_DB:-provenance}
+      REDIS_URL: redis://redis:6379/0
+      FAILURE_RATE: ${FAILURE_RATE:-0.3}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # /health runs SELECT 1, so "healthy" means the API can reach Postgres.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # --- Stage 2: Celery worker ------------------------------------------------------
+  worker:
+    build: .
+    image: provenance-jobs-app:dev
+    command: ["celery", "-A", "app.worker", "worker", "--loglevel=INFO", "--concurrency=4"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # The API creates the tables at startup; wait for it.
+      api:
+        condition: service_healthy
+    healthcheck:
+      # Asks this worker over the broker whether it is alive and consuming.
+      test: ["CMD-SHELL", "celery -A app.worker inspect ping -d celery@$$HOSTNAME --timeout 5"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:

@@ -9,7 +9,7 @@ POSTGRES_USER ?= provenance
 POSTGRES_DB ?= provenance
 
 .DEFAULT_GOAL := help
-.PHONY: help env up down clean ps logs psql redis-cli check
+.PHONY: help env up down clean ps logs psql redis-cli check test submit tamper
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(firstword $(MAKEFILE_LIST)) | \
@@ -19,7 +19,7 @@ env: ## Create .env from .env.example (keeps an existing .env)
 	@test -f .env && echo ".env already exists" || (cp .env.example .env && echo "created .env")
 
 up: env ## Start the stack and wait until every service is healthy
-	$(COMPOSE) up -d --wait
+	$(COMPOSE) up -d --build --wait
 
 down: ## Stop the stack (keeps data volumes)
 	$(COMPOSE) down
@@ -45,3 +45,12 @@ check: ## Smoke test: Postgres answers SQL, Redis answers PING, AOF is on
 	@echo "--- redis ---"
 	@$(COMPOSE) exec -T redis redis-cli ping
 	@$(COMPOSE) exec -T redis redis-cli config get appendonly | tr '\n' ' '; echo
+
+test: ## Run the unit tests inside the api container
+	$(COMPOSE) exec -T api pytest -q
+
+submit: ## Submit 10 jobs and print final status + chain validity
+	$(COMPOSE) exec -T api python scripts/submit_jobs.py
+
+tamper: ## Edit one event in the DB and show the chain break
+	$(COMPOSE) exec -T api python scripts/tamper.py
