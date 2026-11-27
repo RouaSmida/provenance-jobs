@@ -21,6 +21,8 @@ docker compose exec api pytest -q                           # unit tests (hash c
 docker compose exec api python scripts/submit_jobs.py --cancel 2   # 10 jobs end to end
 docker compose exec api python scripts/tamper.py            # break a chain, detect it, restore
 
+py scripts/resilience_demo.py           # ON THE HOST: kill the worker mid-run, check nothing is lost
+                                        # (macOS/Linux: python3 scripts/resilience_demo.py)
 docker compose logs -f worker           # watch retries/cancellations live
 docker compose down                     # stop (keeps data); `down -v` deletes it
 ```

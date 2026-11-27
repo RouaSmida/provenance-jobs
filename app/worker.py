@@ -32,9 +32,8 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,  # if the worker process is killed, requeue the task
     worker_prefetch_multiplier=1,  # don't hoard messages that another worker could run
     task_ignore_result=True,  # results live in Postgres, not in a Celery result backend
-    # Unacked messages return to the queue after this long. It must be longer than the
-    # longest task, or a slow-but-alive task gets delivered twice.
-    broker_transport_options={"visibility_timeout": 300},
+    # Unacked messages return to the queue after this long (see config.py).
+    broker_transport_options={"visibility_timeout": settings.visibility_timeout_s},
     broker_connection_retry_on_startup=True,
 )
 
@@ -105,14 +104,15 @@ def run_design_job(self, job_id: str) -> str:
             job.status = FAILED
             append_event(s, job.id, "failed", {"error": "attempts exhausted", "will_retry": False}, job.attempts)
             return "failed"
+        started = {"worker": self.request.hostname, "celery_task_id": self.request.id}
+        if job.status == RUNNING:
+            # Still 'running' but we were handed the task again: the previous attempt's
+            # worker died mid-run (acks_late redelivery). Record that in the audit trail.
+            started["recovered_from_attempt"] = job.attempts
         job.attempts += 1
         attempt = job.attempts
         job.status = RUNNING
-        append_event(
-            s, job.id, "started",
-            {"worker": self.request.hostname, "celery_task_id": self.request.id},
-            attempt,
-        )
+        append_event(s, job.id, "started", started, attempt)
 
     # --- 2. Steps: work outside the transaction, then record + cancel check --------------
     state: dict = {}

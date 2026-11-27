@@ -99,6 +99,13 @@ is blocked by the trigger, then bypasses the trigger (like a database admin coul
 one event. `verify_chain()` reports the chain broken at that event; the script then puts the
 original back. It talks to the database directly through `db.py` and `provenance.py`.
 
+**`scripts/resilience_demo.py`**: A crash demo, and the one script you run on the **host**
+(`py scripts\resilience_demo.py`), because it needs to call `docker compose`. It submits 20
+jobs, runs `docker compose kill worker` mid-run, restarts the worker, waits for every job to
+finish, then verifies every chain and prints a summary plus the event timeline of one job
+that was interrupted. It talks to the API over HTTP and to Docker; it never touches the
+database.
+
 ## Tests
 
 **`tests/test_provenance.py`**: Unit tests for the hash chain, with no database needed.
@@ -131,8 +138,9 @@ written for interview preparation.
 | Queueing after commit | [app/main.py](app/main.py#L114) → `submit_job` | `session.commit()` runs first, then `run_design_job.delay()` |
 | Retry logic | [app/worker.py](app/worker.py#L151) → `run_design_job` (the `except Exception` block) | Writes `failed` + `retried` events, waits 2 s then 4 s, then `self.retry()`; after 3 attempts the status is `failed` |
 | acks_late | [app/worker.py](app/worker.py#L31) → `celery_app.conf.update` | `task_acks_late` + `task_reject_on_worker_lost`: if a worker dies, the task is delivered again |
+| Crash recovery marker | [app/worker.py](app/worker.py#L111) → `run_design_job` (start block) | A job still `running` when its task arrives again = the previous worker died; the `started` event gets `recovered_from_attempt` |
 | Cancellation (API) | [app/main.py](app/main.py#L135) → `cancel_job` | Queued/retrying → cancelled at once; running → sets `cancel_requested` |
-| Cancellation (worker) | [app/worker.py](app/worker.py#L128) → `run_design_job`, plus `_cancel` (line 76) | Flag is checked at start and between steps |
+| Cancellation (worker) | [app/worker.py](app/worker.py#L128) → `run_design_job`, plus `_cancel` (line 75) | Flag is checked at start and between steps |
 | append_event + row lock | [app/provenance.py](app/provenance.py#L72) → `append_event`, which calls `lock_job` (line 58) | `SELECT ... FOR UPDATE` before reading the previous hash |
 | Insert-only trigger | [app/db.py](app/db.py#L18) → `INSERT_ONLY_DDL`, installed by `init_db` (line 35) | Any UPDATE/DELETE on `events` raises an error |
 | verify_chain | [app/provenance.py](app/provenance.py#L153) → `verify_chain`, logic in `verify_events` (line 116) | Recomputes each hash and returns the first broken event id |

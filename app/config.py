@@ -24,5 +24,11 @@ class Settings:
     task_soft_time_limit_s: int = int(os.getenv("TASK_SOFT_TIME_LIMIT_S", "30"))
     task_time_limit_s: int = int(os.getenv("TASK_TIME_LIMIT_S", "40"))
 
+    # Redis broker: a task taken by a worker but never acked (the worker died) goes back to
+    # the queue after this many seconds. It must be larger than the longest task
+    # (task_time_limit_s) and the longest retry countdown, or a slow but healthy task
+    # would be delivered twice. Lower = faster recovery after a crash.
+    visibility_timeout_s: int = int(os.getenv("VISIBILITY_TIMEOUT_S", "60"))
+
 
 settings = Settings()

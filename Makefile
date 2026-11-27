@@ -9,7 +9,7 @@ POSTGRES_USER ?= provenance
 POSTGRES_DB ?= provenance
 
 .DEFAULT_GOAL := help
-.PHONY: help env up down clean ps logs psql redis-cli check test submit tamper
+.PHONY: help env up down clean ps logs psql redis-cli check test submit tamper resilience
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(firstword $(MAKEFILE_LIST)) | \
@@ -54,3 +54,6 @@ submit: ## Submit 10 jobs and print final status + chain validity
 
 tamper: ## Edit one event in the DB and show the chain break
 	$(COMPOSE) exec -T api python scripts/tamper.py
+
+resilience: ## Kill the worker mid-run and check every job still finishes (runs on the host)
+	python3 scripts/resilience_demo.py
