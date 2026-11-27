@@ -68,3 +68,44 @@ _(filled in after the Q&A)_
 - Deleting the *last* event of a chain isn't detected (nothing points at it). Fix: anchor the
   head hash somewhere outside the DB (signed, or published periodically).
 - `create_all` instead of Alembic migrations.
+
+## Stage 5 – Performance: the lineage query and its index
+
+Run: `docker compose exec api python scripts/benchmark_lineage.py` (or `make benchmark`).
+
+### Result (100,593-row `events` table, one job with 50 events, 10 runs)
+| | min | avg | max | SQL only (`EXPLAIN ANALYZE`) | pages read |
+|---|---|---|---|---|---|
+| with index `ix_events_job_id_id` | 3.60 ms | 3.90 ms | 4.36 ms | 0.22 ms (Bitmap Index Scan) | 53 |
+| without index | 8.56 ms | 11.24 ms | 14.00 ms | 7.31 ms (Seq Scan, 100,543 rows thrown away) | 3,555 |
+
+The SQL itself is **~33x faster** with the index. End to end it is ~3x, because the other
+~3.7 ms is Python: building ORM objects and recomputing 50 SHA-256 hashes. That part does not
+grow with the table; the seq scan does, linearly.
+
+### Why the index makes it fast (simple words)
+- **Without the index**, Postgres has no idea where job X's events are, so it reads the whole
+  table (3,555 pages, 100k rows), checks every row's `job_id`, and throws away 99.95% of them.
+  Double the table, double the time, even though the job still has 50 events.
+- **With the index**, Postgres keeps a sorted list of `(job_id, id) -> row location`, like the
+  index at the back of a book. It jumps straight to job X (3 index pages), then fetches only
+  those 50 rows (50 heap pages). The cost depends on *the size of the job*, not of the table.
+- Here the plan is a *bitmap* scan + a tiny sort, because each event of the job sits on a
+  different page (jobs run at the same time, so their events interleave). The `id` part of
+  the index still lets Postgres return rows already in order when it prefers a plain index scan.
+
+### Concepts
+- `EXPLAIN (ANALYZE, BUFFERS)` runs the query and shows the real plan, time and pages touched.
+  "Rows Removed by Filter" is the tell-tale sign of a missing index.
+- `ANALYZE events` after a bulk load, so the planner knows the table's real size.
+- **Transactional DDL.** `DROP INDEX` inside a transaction + `ROLLBACK` restores the index
+  exactly, even if the script crashes halfway. (It holds an exclusive lock on `events` while
+  dropped, so writers wait: fine on a dev stack, not in production.)
+- **Bulk load with `COPY`** instead of one INSERT per row: 100k rows in ~3.5 s, hashes computed
+  in Python with the same `compute_hash` the app uses, so every chain is valid.
+
+### Interview line
+"On a 100,000-event table, the composite index on `(job_id, id)` cut the lineage query from
+7.3 ms to 0.22 ms (~33x, 53 pages read instead of 3,555), and the full lineage rebuild
+including hash verification from 11.2 ms to 3.9 ms on average."
+

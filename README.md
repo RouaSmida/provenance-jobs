@@ -5,7 +5,8 @@ A learning prototype of an **agentic job platform with data provenance**: long-r
 to a **tamper-evident, hash-chained audit trail** that stays consistent when jobs are
 retried, cancelled or partially fail.
 
-> Status: **Stages 1–3 done**: API, Celery worker, hash-chained audit trail.
+> Status: **Stages 1–3 and 5 done**: API, Celery worker, hash-chained audit trail,
+> lineage benchmark (index vs no index).
 > See [LEARNING_NOTES.md](LEARNING_NOTES.md) for what each stage teaches.
 
 ## Quick start
@@ -20,6 +21,7 @@ docker compose ps                       # all four should be "healthy"
 docker compose exec api pytest -q                           # unit tests (hash chain)
 docker compose exec api python scripts/submit_jobs.py --cancel 2   # 10 jobs end to end
 docker compose exec api python scripts/tamper.py            # break a chain, detect it, restore
+docker compose exec api python scripts/benchmark_lineage.py # 100k events: lineage time with/without index
 
 py scripts/resilience_demo.py           # ON THE HOST: kill the worker mid-run, check nothing is lost
                                         # (macOS/Linux: python3 scripts/resilience_demo.py)

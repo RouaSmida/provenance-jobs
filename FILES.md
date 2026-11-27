@@ -106,6 +106,12 @@ finish, then verifies every chain and prints a summary plus the event timeline o
 that was interrupted. It talks to the API over HTTP and to Docker; it never touches the
 database.
 
+**`scripts/benchmark_lineage.py`**: A performance demo. It bulk-loads 2,000 jobs x 50 events
+(100,000 rows, valid hash chains, written with `COPY`), times the lineage rebuild of one job
+10 times, prints `EXPLAIN ANALYZE`, then drops the `(job_id, id)` index **inside a
+transaction**, measures again and rolls back, so the index is always restored. At the end it
+deletes the synthetic data (`--keep` leaves it). It talks to the database directly.
+
 ## Tests
 
 **`tests/test_provenance.py`**: Unit tests for the hash chain, with no database needed.
